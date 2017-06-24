@@ -1,12 +1,17 @@
 <?php
+declare(strict_types=1);
 
 namespace AlexMasterov\OAuth2\Client\Provider;
 
-use AlexMasterov\OAuth2\Client\Provider\Exception\SuperJobException;
-use AlexMasterov\OAuth2\Client\Provider\SuperJobResourceOwner;
-use League\OAuth2\Client\Provider\AbstractProvider;
-use League\OAuth2\Client\Token\AccessToken;
-use League\OAuth2\Client\Tool\BearerAuthorizationTrait;
+use AlexMasterov\OAuth2\Client\Provider\{
+    SuperJobException,
+    SuperJobResourceOwner
+};
+use League\OAuth2\Client\{
+    Provider\AbstractProvider,
+    Token\AccessToken,
+    Tool\BearerAuthorizationTrait
+};
 use Psr\Http\Message\ResponseInterface;
 
 class SuperJob extends AbstractProvider
@@ -59,7 +64,7 @@ class SuperJob extends AbstractProvider
             $params['redirect_uri'] = $this->redirectUri;
         }
 
-        return $this->urlAccessToken.'?'.
+        return $this->urlAccessToken . '?' .
             $this->buildQueryString($params);
     }
 
@@ -68,7 +73,7 @@ class SuperJob extends AbstractProvider
      */
     public function getResourceOwnerDetailsUrl(AccessToken $token)
     {
-        return $this->urlApi.'user/current/?'.
+        return $this->urlApi . 'user/current/?' .
             $this->buildQueryString([
                 'access_token' => (string) $token,
             ]);
