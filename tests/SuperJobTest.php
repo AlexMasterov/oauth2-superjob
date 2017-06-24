@@ -1,166 +1,159 @@
 <?php
+declare(strict_types=1);
 
-namespace AlexMasterov\OAuth2\Client\Tests\Provider;
+namespace AlexMasterov\OAuth2\Client\Provider\Tests;
 
-use AlexMasterov\OAuth2\Client\Provider\Exception\SuperJobException;
-use AlexMasterov\OAuth2\Client\Provider\SuperJob;
-use Eloquent\Phony\Phpunit\Phony;
-use GuzzleHttp\ClientInterface;
-use League\OAuth2\Client\Token\AccessToken;
+use AlexMasterov\OAuth2\Client\Provider\{
+    SuperJob,
+    SuperJobException,
+    SuperJobResourceOwner,
+    Tests\CanAccessTokenStub,
+    Tests\CanMockHttp
+};
 use PHPUnit\Framework\TestCase;
-use Psr\Http\Message\ResponseInterface;
 
 class SuperJobTest extends TestCase
 {
-    /**
-     * @var SuperJob
-     */
-    private $provider;
-
-    protected function setUp()
-    {
-        $this->provider = new SuperJob([
-            'clientId'     => 'mock_client_id',
-            'clientSecret' => 'mock_secret',
-            'redirectUri'  => 'mock_redirect_uri',
-        ]);
-    }
-
-    protected function tearDown()
-    {
-        parent::tearDown();
-    }
-
-    protected function mockResponse($body)
-    {
-        $response = Phony::mock(ResponseInterface::class);
-        $response->getHeader->with('content-type')->returns('application/json');
-        $response->getBody->returns(json_encode($body));
-
-        return $response;
-    }
-
-    protected function mockClient(ResponseInterface $response)
-    {
-        $client = Phony::mock(ClientInterface::class);
-        $client->send->returns($response);
-
-        return $client;
-    }
+    use CanAccessTokenStub;
+    use CanMockHttp;
 
     public function testAuthorizationUrl()
     {
-        // Run
-        $url = $this->provider->getAuthorizationUrl();
-        $path = \parse_url($url, PHP_URL_PATH);
+        // Execute
+        $url = $this->provider()
+            ->getAuthorizationUrl();
 
         // Verify
-        $this->assertSame('/authorize/', $path);
+        self::assertSame('/authorize/', path($url));
     }
 
     public function testBaseAccessTokenUrl()
     {
-        $params = [];
+        static $params = [];
 
-        // Run
-        $url = $this->provider->getBaseAccessTokenUrl($params);
-        $path = \parse_url($url, PHP_URL_PATH);
+        // Execute
+        $url = $this->provider()
+            ->getBaseAccessTokenUrl($params);
 
         // Verify
-        $this->assertSame('/2.0/oauth2/access_token/', $path);
+        self::assertSame('/2.0/oauth2/access_token/', path($url));
+    }
+
+    public function testResourceOwnerDetailsUrl()
+    {
+        // Stub
+        $apiUrl = $this->apiUrl();
+        $tokenParams = [
+            'access_token' => 'mock_access_token',
+        ];
+
+        $accessToken = $tokenParams['access_token'];
+
+        // Execute
+        $detailUrl = $this->provider()
+            ->getResourceOwnerDetailsUrl($this->accessToken($tokenParams));
+
+        // Verify
+        self::assertSame(
+            "{$apiUrl}user/current/?access_token={$accessToken}",
+            $detailUrl
+        );
     }
 
     public function testDefaultScopes()
     {
-        $reflection = new \ReflectionClass(get_class($this->provider));
-        $getDefaultScopesMethod = $reflection->getMethod('getDefaultScopes');
-        $getDefaultScopesMethod->setAccessible(true);
+        $getDefaultScopes = function () {
+            return $this->getDefaultScopes();
+        };
 
-        // Run
-        $scope = $getDefaultScopesMethod->invoke($this->provider);
-
-        // Verify
-        $this->assertEquals([], $scope);
-    }
-
-    public function testGetAccessToken()
-    {
-        $body = [
-            'access_token'  => 'mock_access_token',
-            'refresh_token' => 'mock_refresh_token',
-            'ttl'           => 1394748311,
-            'expires_in'    => \time() * 3600,
-            'token_type'    => 'bearer',
-        ];
-
-        $response = $this->mockResponse($body);
-        $client = $this->mockClient($response->get());
-
-        // Run
-        $this->provider->setHttpClient($client->get());
-        $token = $this->provider->getAccessToken('authorization_code', ['code' => 'mock_authorization_code']);
+        // Execute
+        $defaultScopes = $getDefaultScopes->call($this->provider());
 
         // Verify
-        $this->assertNull($token->getResourceOwnerId());
-        $this->assertEquals($body['access_token'], $token->getToken());
-        $this->assertEquals($body['refresh_token'], $token->getRefreshToken());
-        $this->assertGreaterThanOrEqual($body['expires_in'], $token->getExpires());
+        self::assertSame([], $defaultScopes);
     }
 
-    public function testUserProperty()
+    public function testCheckResponse()
     {
-        $body = [
-            'id'           => 123,
-            'name'         => 'name',
-            'phone_number' => '+77777777777',
-            'email'        => 'email',
-            'date_reg'     => 1152323382,
-        ];
+        $getParseResponse = function () use (&$response, &$data) {
+            return $this->checkResponse($response, $data);
+        };
 
-        $tokenOptions = [
-            'access_token' => 'mock_access_token',
-            'expires_in'   => 3600,
-        ];
-
-        $token = new AccessToken($tokenOptions);
-        $response = $this->mockResponse($body);
-        $client = $this->mockClient($response->get());
-
-        // Run
-        $this->provider->setHttpClient($client->get());
-        $user = $this->provider->getResourceOwner($token);
-
-        // Verify
-        $this->assertEquals($body['id'], $user->getId());
-        $this->assertEquals($body['name'], $user->getName());
-        $this->assertEquals($body['phone_number'], $user->getPhoneNumber());
-        $this->assertEquals($body['email'], $user->getEmail());
-        $this->assertArrayHasKey('date_reg', $user->toArray());
-    }
-
-    public function testErrorResponses()
-    {
+        // Stub
         $code = 401;
-        $body = [
-            'error' => [
+        $data = ['error' => [
                 'code'    => $code,
                 'error'   => 'Foo error',
                 'message' => 'Error message',
             ],
         ];
 
-        $response = $this->mockResponse($body);
-        $response->getStatusCode->returns($code);
-        $client = $this->mockClient($response->get());
+        // Mock
+        $response = $this->mockResponse('', '', $code);
 
-        $this->expectException(SuperJobException::class);
-        $this->expectExceptionCode($code);
+        // Verify
+        self::expectException(SuperJobException::class);
+        self::expectExceptionCode($code);
 
-        unset($body['error']['code']);
-        $this->expectExceptionMessage(implode(': ', $body['error']));
+        unset($data['error']['code']);
+        self::expectExceptionMessage(implode(': ', $data['error']));
 
-        // Run
-        $this->provider->setHttpClient($client->get());
-        $this->provider->getAccessToken('authorization_code', ['code' => 'mock_authorization_code']);
+        // Execute
+        $getParseResponse->call($this->provider());
     }
+
+    public function testCreateResourceOwner()
+    {
+        $getCreateResourceOwner = function () use (&$response, &$token) {
+            return $this->createResourceOwner($response, $token);
+        };
+
+        // Stub
+        $token = $this->accessToken();
+        $response = [
+            'id'           => random_int(1, 1000),
+            'name'         => 'mock_name',
+            'phone_number' => 'mock_phone_number',
+            'email'        => 'mock_email',
+            'date_reg'     => time(),
+        ];
+
+        // Execute
+        $resourceOwner = $getCreateResourceOwner->call($this->provider());
+
+        // Verify
+        self::assertInstanceOf(SuperJobResourceOwner::class, $resourceOwner);
+        self::assertEquals($response['id'], $resourceOwner->getId());
+        self::assertEquals($response['name'], $resourceOwner->getName());
+        self::assertEquals($response['phone_number'], $resourceOwner->getPhoneNumber());
+        self::assertEquals($response['email'], $resourceOwner->getEmail());
+        self::assertSame($response, $resourceOwner->toArray());
+    }
+
+    private function provider(...$args): SuperJob
+    {
+        static $default = [
+            'clientId'     => 'mock_client_id',
+            'clientSecret' => 'mock_secret',
+            'redirectUri'  => 'mock_redirect_uri',
+        ];
+
+        $values = array_replace($default, ...$args);
+
+        return new SuperJob($values);
+    }
+
+    private function apiUrl(): string
+    {
+        $getApiUrl = function () {
+            return $this->urlApi;
+        };
+
+        return $getApiUrl->call($this->provider());
+    }
+}
+
+function path(string $url): string
+{
+    return parse_url($url, PHP_URL_PATH);
 }
